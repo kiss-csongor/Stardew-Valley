@@ -3,7 +3,10 @@ import pygame
 from settings import *
 from player import Player
 from overlay import Overlay
-from sprites import Generic
+from sprites import *
+from pytmx.util_pygame import load_pygame
+from sprites import Water
+from support import *
 
 class Level:
 	def __init__(self):
@@ -13,12 +16,49 @@ class Level:
 
 		# sprite groups
 		self.all_sprites = CameraGroup()
+		self.collision_sprites = pygame.sprite.Group()
 
 		self.setup()
 		self.overlay = Overlay(self.player)
 
 	def setup(self):
-		self.player = Player((640,360), self.all_sprites)
+		tmx_data = load_pygame('./data/map.tmx')
+
+		# house
+		for layer in ['HouseFloor','HouseFurnitureBottom']:
+			for x, y, surf in tmx_data.get_layer_by_name(layer).tiles():
+				Generic((x * TILE_SIZE, y * TILE_SIZE), surf, self.all_sprites, LAYERS['house bottom'])
+
+		for layer in ['HouseWalls','HouseFurnitureTop']:
+			for x, y, surf in tmx_data.get_layer_by_name(layer).tiles():
+				Generic((x * TILE_SIZE, y * TILE_SIZE), surf, self.all_sprites)
+
+		# fence
+		for x, y, surf in tmx_data.get_layer_by_name('Fence').tiles():
+			Generic((x * TILE_SIZE, y * TILE_SIZE), surf, [self.all_sprites, self.collision_sprites])
+
+		# water
+		water_frames = import_folder('./graphics/water')
+		for x, y, surf in tmx_data.get_layer_by_name('Water').tiles():
+			Water((x * TILE_SIZE, y * TILE_SIZE), water_frames, self.all_sprites, LAYERS['water'])
+
+		# wild flowers
+		for obj in tmx_data.get_layer_by_name('Decoration'):
+			WildFlower((obj.x, obj.y), obj.image, [self.all_sprites, self.collision_sprites])
+
+		# Trees
+		for obj in tmx_data.get_layer_by_name('Trees'):
+			Tree((obj.x, obj.y), obj.image, [self.all_sprites, self.collision_sprites], obj.name)
+				
+		# collision tiles
+		for x, y, surf in tmx_data.get_layer_by_name('Collision').tiles():
+			Generic((x * TILE_SIZE, y * TILE_SIZE), pygame.Surface((TILE_SIZE, TILE_SIZE)), self.collision_sprites)
+
+		# Player
+		for obj in tmx_data.get_layer_by_name('Player'):
+			if obj.name == 'Start':
+				self.player = Player((obj.x,obj.y), self.all_sprites, self.collision_sprites)
+
 		Generic(pos = (0,0),
 		  		surf = pygame.image.load('./graphics/world/ground.png').convert_alpha(),
 				groups = self.all_sprites, 
@@ -39,7 +79,7 @@ class CameraGroup(pygame.sprite.Group):
 		self.offset = pygame.math.Vector2()
 		self.half_w = self.display_surface.get_size()[0] // 2
 		self.half_h = self.display_surface.get_size()[1] // 2
-		self.camera_type = 'box_target_camera'
+		self.camera_type = 'center_camera'
 
 		# box setup
 		self.camera_borders = {'left': 200, 'right': 200, 'top': 100, 'bottom': 100}
@@ -85,7 +125,7 @@ class CameraGroup(pygame.sprite.Group):
 
 
 		for layer in LAYERS.values():
-			for sprite in self.sprites():
+			for sprite in sorted(self.sprites(), key = lambda sprite: sprite.rect.centery):
 				if sprite.z == layer:
 					offset_rect = sprite.rect.copy()
 					offset_rect.center -= self.offset
